@@ -1,8 +1,8 @@
 # Poker
 
-No-limit Texas Hold'em for 2–10 players, played online on phones with family and friends. One person creates a table and shares the link on WhatsApp; everyone else opens it and types their name. There is nothing to install and no accounts. **Play chips only: no real money is involved anywhere.**
+**Texas Hold'em** and **Teen Patti** for 2–10 players, played online on phones with family and friends. One person creates a table, picks the game and shares the link on WhatsApp; everyone else opens it and types their name. There is nothing to install and no accounts. **Play chips only: no real money is involved anywhere.**
 
-## Rules (as built)
+## Texas Hold'em (as built)
 
 - **Texas Hold'em, no limit.** Two cards each, five shared cards (flop, turn, river), a betting round before the flop and after each street. Best five-card hand wins; equal hands split the pot.
 - **Blinds and the button.** The dealer button moves one seat each hand. The two players to its left post the small and big blind; heads-up, the button posts the small blind and acts first before the flop.
@@ -14,13 +14,27 @@ No-limit Texas Hold'em for 2–10 players, played online on phones with family a
   - **Tournament:** no rebuys, the blinds go up every 10/15/20/30 minutes, last player with chips wins. Players knocked out in the same hand are placed by who started it with more chips.
 - **Starting chips** 500 to 10,000 and **blinds** 5/10 to 100/200, set by the host.
 
+## Teen Patti (as built)
+
+- **Boot and deal.** Everyone puts in the boot and gets three cards face down. The dealer moves one seat each hand; the player on the dealer's left starts.
+- **Blind or seen.** Play blind, without looking, or see your cards at any time (even when it isn't your turn). Everyone can see who is blind. The stake starts at the boot: a blind player bets the stake, a seen player bets twice the stake (chaal). **2x** doubles the stake. **Pack** to fold.
+- **Show.** With two players left, either can ask for a show for the price of one bet. The better hand wins the pot; on an exact tie, whoever asked for the show loses.
+- **Sideshow.** A seen player can pay a chaal and ask the seen player just before them to compare cards in private. The lower hand packs (on a tie, the one who asked packs). The other player can refuse.
+- **Hands, best to worst:** Trail (three of a kind), Pure Sequence, Sequence, Color, Pair, High Card. A-K-Q is the top run, then A-2-3, then K-Q-J down to 4-3-2. A sequence beats a color, and suits never break a tie.
+- **Pot limit** (the host picks none, or 50/100/200/500 boots): when the pot reaches it, everyone still in shows.
+- **All in.** Short of chips? Bet what you have. You can win the pot as it stood then; later bets go into a side pot for the others.
+- **Cash game or tournament**, as in Hold'em; in a tournament the boot goes up every few minutes.
+- **Boot** 5 to 100, set by the host. Timeouts pack (or refuse a sideshow).
+
 ## Features
 
 - **Rooms:** 4-letter room codes and share links (`https://…/ABCD`), with WhatsApp, Share and Copy link buttons.
-- **Made for people new to poker:** your best hand is always spelled out under your cards ("Two Pair, Kings and Fives"), the winning five cards light up at a showdown, and How to play shows every hand ranking with real cards.
-- **Betting controls:** Fold / Check / Call, and a raise slider with Min, ½ pot, ¾ pot, Pot and All in. Going all in takes two taps. While you wait, tick **Check / Fold** or **Check** and it happens on your turn.
-- **Computer players** to fill seats or practise alone, named after Bollywood villains (Gabbar, Mogambo, Shakaal…). They only use what a person in their seat would know.
-- **Hidden cards stay hidden:** the server deals and decides everything and sends each phone only its own cards.
+- **Two games, one table:** the host picks Texas Hold'em or Teen Patti in the lobby; seats, chips, rebuys, tournaments and host controls work the same in both.
+- **Made for people new to the games:** your best hand is always spelled out under your cards ("Two Pair, Kings and Fives", "Pure Sequence, A-2-3"), the winning cards light up at a Hold'em showdown, and How to play has a tab for each game with every hand ranking shown in real cards.
+- **Hold'em betting controls:** Fold / Check / Call, and a raise slider with Min, ½ pot, ¾ pot, Pot and All in. Going all in takes two taps. While you wait, tick **Check / Fold** or **Check** and it happens on your turn.
+- **Teen Patti controls:** tap your cards to see them, then Pack / Blind or Chaal / 2x, plus Show and Sideshow when they're allowed; a sideshow request pops up with Accept and Refuse.
+- **Computer players** for both games, to fill seats or practise alone, named after Bollywood villains (Gabbar, Mogambo, Shakaal…). They only use what a person in their seat would know (in Teen Patti they play blind for a while before looking).
+- **Hidden cards stay hidden:** the server deals and decides everything and sends each phone only its own cards (in Teen Patti, not even those until you choose to see them).
 - **Reconnecting:** a reload or a dropped connection puts you back in your seat. If you're offline or out of time you check (or fold), and after that you sit out until you're back.
 - **Host controls:** turn timer, pause/resume, skip a slow player, add a computer player, remove a player, make someone else host, end the game. The host role moves on if the host is offline for 30 seconds. Someone whose phone died can take their seat back on another device once the host agrees.
 - **On screen:** hand history, standings (chips, buy-ins, +/−), Indian number formats (1,00,000), sounds, vibration, chip and card animations. The screen stays awake during a game.
@@ -45,17 +59,19 @@ Notes:
 ```sh
 npm install
 npm start          # http://localhost:3000
-npm test           # hand evaluator, rules, randomised games and socket tests
+npm test           # hand evaluators, rules, randomised games and socket tests
 ```
 
 Phones on the same Wi-Fi can join at `http://<your-computer's-IP>:3000`.
 
 ## Code map
 
-- `server/hand.js`: the hand evaluator. Scores any 5–7 cards as one number; checked against all 2,598,960 five-card hands.
-- `server/game.js`: the Hold'em rules engine, a pure state machine (blinds, betting, side pots, showdown, rebuys, tournaments). `viewFor(player)` is the only way state reaches a client.
-- `server/bot.js`: computer players (a preflop hand rating, then simulated odds against the players still in).
-- `server/rooms.js`: rooms, seats, host controls, turn timers, dealing the next hand, blind levels, reconnects and the socket API.
+- `server/table.js`: what both games share: seats, stacks, the dealer button, rebuys, sitting out, people leaving, busting out, tournament places, game over.
+- `server/hand.js`: the Hold'em hand evaluator. Scores any 5–7 cards as one number; checked against all 2,598,960 five-card hands.
+- `server/game.js`: the Hold'em rules engine, a pure state machine (blinds, betting, side pots, showdown). `viewFor(player)` is the only way state reaches a client.
+- `server/bot.js`: Hold'em computer players (a preflop hand rating, then simulated odds against the players still in).
+- `server/teenhand.js`, `server/teenpatti.js`, `server/teenbot.js`: the same three for Teen Patti (the evaluator is checked against all 22,100 three-card hands).
+- `server/rooms.js`: rooms, the game choice, seats, host controls, turn timers, dealing the next hand, blind and boot levels, reconnects and the socket API.
 - `server/index.js`: the Express + Socket.IO server.
-- `public/`: the phone web app, plain ES modules with no build step.
+- `public/`: the phone web app, plain ES modules with no build step (`screens/table.js` for Hold'em, `screens/teenpatti.js` for Teen Patti).
 - `test/`: evaluator and rules unit tests, randomised games that check no chip or card is ever lost or leaked, and end-to-end socket tests.

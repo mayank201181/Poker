@@ -9,40 +9,48 @@ import { ordinal } from '../text.js';
 const ACTION = { sb: 'SB', bb: 'BB', fold: 'Fold', check: 'Check', call: 'Call', bet: 'Bet', raise: 'Raise', allin: 'All in' };
 const STREET = { preflop: 'Pre-flop', flop: 'Flop', turn: 'Turn', river: 'River' };
 
-export function renderTable(ctx) {
+// What both games' tables need to know about the view.
+export function tableState(ctx) {
   const v = ctx.view;
   const g = v.game;
   const hand = g.hand;
   const me = g.players.find((p) => p.id === v.me) ?? null;
   const at = me ? g.players.indexOf(me) : -1;
-  const others = me ? [...g.players.slice(at + 1), ...g.players.slice(0, at)] : g.players;
-  const st = {
+  return {
     ctx,
     v,
     g,
     hand,
     me,
-    others,
+    // Everyone else, starting with the player on your left.
+    others: me ? [...g.players.slice(at + 1), ...g.players.slice(0, at)] : g.players,
     playing: g.phase === 'hand',
     over: g.phase === 'handOver' || g.phase === 'gameOver' || g.phase === 'waiting',
     myTurn: Boolean(hand?.options),
     isHost: v.host === v.me,
-    win: winningCards(g),
     name: (pid) => (pid === v.me ? 'You' : g.players.find((p) => p.id === pid)?.name ?? v.members.find((m) => m.id === pid)?.name ?? g.gone.find((x) => x.id === pid)?.name ?? 'Someone'),
   };
-  const n = others.length;
+}
+
+export function renderTable(ctx) {
+  const st = tableState(ctx);
+  st.win = winningCards(st.g);
+  const { v, g, hand } = st;
+  const [sb, bb] = hand && st.playing ? hand.blinds : g.blinds;
   return h(
     'main.screen.table',
     { class: { 'my-turn': st.myTurn, raising: st.myTurn && ctx.S.ui.raise !== null, paused: Boolean(v.paused) } },
-    topBar(st),
-    h('button.ticker', { onClick: () => ctx.openSheet('log') }, ctx.S.log.at(-1)?.text ?? 'Hand history'),
-    h('section.opps', h('div.opps-grid', { class: `n${Math.min(n, 9)}` }, others.map((p) => seat(st, p)))),
+    topBar(st, `${fmtShort(sb)}/${fmtShort(bb)}`),
+    ticker(st),
+    h('section.opps', h('div.opps-grid', { class: `n${Math.min(st.others.length, 9)}` }, st.others.map((p) => seat(st, p)))),
     felt(st),
     status(st),
-    me ? hero(st) : watching(st),
+    st.me ? hero(st) : watching(st),
     actions(st),
   );
 }
+
+export const ticker = (st) => h('button.ticker', { onClick: () => st.ctx.openSheet('log') }, st.ctx.S.log.at(-1)?.text ?? 'Hand history');
 
 // After a showdown: the five cards that won the main pot, to light them up.
 function winningCards(g) {
@@ -52,18 +60,17 @@ function winningCards(g) {
   return g.players.find((p) => p.id === pid)?.best?.cards ?? null;
 }
 
-function topBar(st) {
-  const { ctx, v, g, hand } = st;
-  const [sb, bb] = hand && st.playing ? hand.blinds : g.blinds;
+export function topBar(st, stakes) {
+  const { ctx, v, hand } = st;
   return h(
     'header.topbar',
     h('button.icon-btn', { 'aria-label': 'Menu', onClick: () => ctx.openSheet('menu') }, '☰'),
     h(
       'div.tb-mid',
       h('b', 'Poker'),
-      h('span', v.code),
+      h('span.code', v.code),
       hand && h('span', `Hand ${hand.no}`),
-      h('span.blinds', `${fmtShort(sb)}/${fmtShort(bb)}`),
+      h('span.blinds', stakes),
     ),
     h('button.icon-btn', { 'aria-label': 'Standings', onClick: () => ctx.openSheet('standings') }, '🏆'),
     h('button.icon-btn', { 'aria-label': 'Sound on or off', onClick: () => ctx.toggleSound() }, isMuted() ? '🔇' : '🔊'),
@@ -167,7 +174,7 @@ function hero(st) {
   );
 }
 
-function watching(st) {
+export function watching(st) {
   const { ctx, v, g } = st;
   const pending = v.claims.find((c) => c.from === v.me);
   const free = g.players.filter((p) => {
@@ -216,6 +223,18 @@ function felt(st) {
 }
 
 function feltMessage(st) {
+  const { hand, name } = st;
+  if (st.playing && !hand.voided) {
+    if (hand.runout) return [h('b', 'All in!'), h('span', 'Dealing the rest of the board…')];
+    const street = STREET[hand.street];
+    if (st.myTurn) return [h('b', 'Your turn'), h('span', street)];
+    return [h('b', `${name(hand.toAct)}${hand.toAct === st.v.me ? '' : "'s"} turn`), h('span', street)];
+  }
+  return outcome(st);
+}
+
+// Between hands: waiting for players, a hand called off, or who won what.
+export function outcome(st) {
   const { g, hand, name } = st;
   if (g.phase === 'waiting') {
     const busted = g.players.filter((p) => p.busted).length;
@@ -223,12 +242,6 @@ function feltMessage(st) {
   }
   if (!hand) return null;
   if (hand.voided) return [h('b', 'Hand called off'), h('span', 'Everyone got their bets back')];
-  if (st.playing) {
-    if (hand.runout) return [h('b', 'All in!'), h('span', 'Dealing the rest of the board…')];
-    const street = STREET[hand.street];
-    if (st.myTurn) return [h('b', 'Your turn'), h('span', street)];
-    return [h('b', `${name(hand.toAct)}${hand.toAct === st.v.me ? '' : "'s"} turn`), h('span', street)];
-  }
   const res = hand.results;
   if (!res) return null;
   // Pots won by the same people read as one line: "Asha wins 3,500".
@@ -247,7 +260,7 @@ function feltMessage(st) {
   });
 }
 
-function status(st) {
+export function status(st) {
   const { ctx, v, g, name } = st;
   const kids = [];
   const timer = v.timer;
@@ -276,12 +289,12 @@ function status(st) {
     );
   }
   if (v.clock && g.phase !== 'gameOver') {
-    const [sb, bb] = g.nextBlinds;
+    const next = g.kind === 'teenpatti' ? `Boot ${fmtShort(g.nextBoot)}` : `Blinds ${fmtShort(g.nextBlinds[0])}/${fmtShort(g.nextBlinds[1])}`;
     kids.push(
       h(
         'span.clock',
         { dataset: { deadline: String(ctx.S.clockAt), total: String(v.clock.total), fmt: 'clock', calm: '1', left: String(v.clock.left), ...(v.clock.paused ? { frozen: '1' } : {}) } },
-        `Blinds ${fmtShort(sb)}/${fmtShort(bb)} in `,
+        `${next} in `,
         h('span.secs', ''),
       ),
     );
@@ -291,11 +304,13 @@ function status(st) {
 
 // ------------------------------------------------------------- buttons
 
-function actions(st) {
-  const { ctx, v, g, hand, me } = st;
-  const bar = (...kids) => h('footer.actions', ...kids);
-  const hint = (text) => h('p.hint', text);
+export const bar = (...kids) => h('footer.actions', ...kids);
+export const hint = (text) => h('p.hint', text);
 
+// The button bar when it isn't about this hand: game over, watching, paused,
+// out of chips, sitting out. Null when the game's own buttons apply.
+export function commonActions(st) {
+  const { ctx, v, g, me } = st;
   if (g.phase === 'gameOver') return bar(h('button.btn.primary', { onClick: () => ctx.showOver() }, 'Final results'));
   if (!me) return bar();
   if (v.paused) {
@@ -304,19 +319,34 @@ function actions(st) {
       st.isHost && h('button.btn.primary', { onClick: () => ctx.send('resume') }, '▶ Resume'),
     );
   }
-  if (st.myTurn) return st.ctx.S.ui.raise !== null && hand.options.canRaise ? raisePanel(st) : turnBar(st, bar);
-
-  const mine = st.playing && me.inHand ? me : null;
-  const rows = [];
-  if (me.stack === 0 && !mine) {
-    if (g.rules.mode === 'cash') {
-      rows.push(hint('Out of chips. Buy back in to keep playing.'), h('button.btn.primary', { onClick: () => ctx.send('rebuy') }, `Rebuy ${fmt(g.rules.stack)}`));
-    } else rows.push(hint(me.place ? `You finished ${ordinal(me.place)}. Stay and watch the rest!` : 'You are out of chips'));
-    return bar(...rows);
+  if (st.myTurn) return null;
+  if (me.stack === 0 && !(st.playing && me.inHand)) {
+    if (g.rules.mode === 'cash') return bar(hint('Out of chips. Buy back in to keep playing.'), h('button.btn.primary', { onClick: () => ctx.send('rebuy') }, `Rebuy ${fmt(g.rules.stack)}`));
+    return bar(hint(me.place ? `You finished ${ordinal(me.place)}. Stay and watch the rest!` : 'You are out of chips'));
   }
   if (me.out) {
     return bar(hint(me.out === 'away' ? 'You missed your turn, so you are sitting out' : 'You are sitting out'), h('button.btn.primary', { onClick: () => ctx.send('sitIn') }, "I'm back"));
   }
+  return null;
+}
+
+// After a hand, anyone who played it can show their cards; otherwise wait for the next one.
+export function betweenHands(st) {
+  const { ctx, g, hand, me } = st;
+  if (g.phase === 'handOver' && me.inHand && !hand.voided && me.cards?.some(Boolean) && !me.shown) {
+    return bar(h('button.btn', { onClick: () => ctx.send('show') }, me.won ? 'Show my cards (I won!)' : 'Show my cards'));
+  }
+  if (g.phase === 'waiting') return bar(hint('Waiting for more players with chips…'));
+  return bar(hint(st.playing ? 'You will be dealt in next hand' : 'Next hand coming up…'));
+}
+
+function actions(st) {
+  const { ctx, hand, me } = st;
+  const common = commonActions(st);
+  if (common) return common;
+  if (st.myTurn) return st.ctx.S.ui.raise !== null && hand.options.canRaise ? raisePanel(st) : turnBar(st, bar);
+
+  const mine = st.playing && me.inHand ? me : null;
   if (mine && !mine.folded && !mine.allIn && !hand.runout) {
     const pre = ctx.S.pre?.kind;
     const free = hand.currentBet <= mine.bet;
@@ -327,11 +357,7 @@ function actions(st) {
   }
   if (mine?.allIn) return bar(hint(hand.runout ? 'Good luck!' : "You're all in. Good luck!"));
   if (mine?.folded) return bar(hint('You folded. Waiting for the hand to finish…'));
-  if (g.phase === 'handOver' && me.inHand && !hand.voided && me.cards && !me.shown) {
-    return bar(h('button.btn', { onClick: () => ctx.send('show') }, me.won ? 'Show my cards (I won!)' : 'Show my cards'));
-  }
-  if (g.phase === 'waiting') return bar(hint('Waiting for more players with chips…'));
-  return bar(hint(st.playing ? 'You will be dealt in next hand' : 'Next hand coming up…'));
+  return betweenHands(st);
 }
 
 function turnBar(st, bar) {

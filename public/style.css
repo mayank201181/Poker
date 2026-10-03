@@ -705,6 +705,8 @@ h3 {
   padding: calc(6px + var(--safe-t)) 8px calc(6px + var(--safe-b));
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto auto auto auto;
+  /* Nothing inside may make the table wider than the phone. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -1273,8 +1275,9 @@ h3 {
 
 .me-bet {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   min-height: 20px;
   font-size: 12.5px;
 }
@@ -1561,6 +1564,165 @@ h3 {
   100% {
     transform: none;
   }
+}
+
+/* ------------------------------------------------------------- teen patti */
+
+/* Three small cards fit where Hold'em has two. */
+.screen.table.tp .opps-grid {
+  --seat-card: 21px;
+}
+
+.screen.table.tp .opps-grid.n0,
+.screen.table.tp .opps-grid.n1 {
+  --seat-card: 30px;
+}
+
+.screen.table.tp .opps-grid.n2,
+.screen.table.tp .opps-grid.n4 {
+  --seat-card: 26px;
+}
+
+.hole.three {
+  gap: 2px;
+}
+
+.seen-tag {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(190, 160, 255, 0.22);
+  color: #e2d6ff;
+}
+
+.seen-tag.seen {
+  background: rgba(142, 197, 255, 0.22);
+  color: #cfe6ff;
+}
+
+.act.blind {
+  color: #e2d6ff;
+}
+
+.act.chaal {
+  color: #c9f2d9;
+}
+
+.act.sideshow,
+.act.show {
+  color: var(--gold);
+  font-weight: 750;
+}
+
+/* Both sides of a sideshow question light up. */
+.seat.asked {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue), 0 0 14px rgba(142, 197, 255, 0.35);
+}
+
+.hero.tp .me-cards.three {
+  gap: 5px;
+}
+
+.hero.tp .card.lg {
+  --w: min(56px, 14.5vw);
+}
+
+/* Blind: tap your cards to look at them. */
+button.me-cards.see {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  position: relative;
+  display: flex;
+  cursor: pointer;
+  border-radius: 8px;
+  touch-action: manipulation;
+}
+
+.see-cta {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 10px;
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+.in-pot {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.felt.tp {
+  min-height: 116px;
+  justify-content: center;
+}
+
+.felt.tp > .side {
+  margin-top: -2px;
+}
+
+.tp-stake {
+  display: flex;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tp-stake b {
+  color: var(--ink);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions.tp-turn {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.tp-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.tp-row .btn {
+  flex: 1 1 0;
+}
+
+.tp-row.extra .btn {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.btn.see {
+  background: rgba(190, 160, 255, 0.18);
+  border-color: rgba(205, 180, 255, 0.55);
+}
+
+.btn.show {
+  background: rgba(243, 195, 79, 0.18);
+  border-color: rgba(243, 195, 79, 0.6);
+}
+
+.btn.side {
+  background: rgba(142, 197, 255, 0.16);
+  border-color: rgba(142, 197, 255, 0.55);
 }
 
 /* ----------------------------------------------------------------- sheets */
@@ -2010,6 +2172,12 @@ ol.log li.head {
   .screen.table.raising .felt-msg {
     display: none;
   }
+  .hero.tp .card.lg {
+    --w: min(48px, 13vw);
+  }
+  .felt.tp {
+    min-height: 0;
+  }
   .hero {
     padding: 6px 10px;
   }
@@ -2023,6 +2191,13 @@ ol.log li.head {
     padding: 3px 10px;
     min-height: 22px;
     font-size: 12px;
+  }
+}
+
+/* Narrow phones: the room code is in the menu, the stakes matter more. */
+@media (max-width: 380px) {
+  .tb-mid .code {
+    display: none;
   }
 }
 

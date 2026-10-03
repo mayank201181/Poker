@@ -2,7 +2,7 @@
   "name": "poker",
   "version": "1.0.0",
   "private": true,
-  "description": "Poker — online multiplayer Texas Hold'em for family and friends (2–10 players, play chips only).",
+  "description": "Poker — online multiplayer Texas Hold'em and Teen Patti for family and friends (2–10 players, play chips only).",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

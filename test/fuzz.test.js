@@ -1,4 +1,4 @@
-// Randomised games: random (often silly or illegal) moves, players leaving,
+// Randomised Hold'em and Teen Patti games: random (often silly or illegal) moves, players leaving,
 // sitting down, sitting out and rebuying, and bot-only games. After every
 // step we check that no chip or card is lost or made up, that every pot went
 // to the best hand that could win it, and that no view shows a hidden card.
@@ -7,6 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, GameError } from '../server/game.js';
 import { botAct } from '../server/bot.js';
+import { TeenPatti } from '../server/teenpatti.js';
+import { teenBotAct } from '../server/teenbot.js';
 import { seededRng } from '../server/util.js';
 
 const players = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
@@ -90,7 +92,7 @@ function randomMove(g, rng, nextId) {
   if (r < 0.08) return g.sitIn(someone());
   if (r < 0.1) return g.rebuy(someone());
   if (r < 0.11) return g.show(someone());
-  if (r < 0.115) return g.raiseBlinds();
+  if (r < 0.115) return g.raiseLevel();
   if (g.phase === 'hand') {
     if (g.hand.runout) return g.runoutStep();
     if (rng() < 0.05) return g.act(someone(), 'call'); // usually not their turn
@@ -143,10 +145,125 @@ test('computer players always make a legal move, and their games finish', () => 
           assert.ok(g.phase !== 'hand' || g.hand.actions > before || g.hand.runout, 'the bot did nothing');
         }
       } else {
-        if (g.handNo % 15 === 0) g.raiseBlinds();
+        if (g.handNo % 15 === 0) g.raiseLevel();
         g.nextHand();
       }
       if (step % 7 === 0) checkInvariants(g);
+    }
+    assert.equal(g.winners.length, 1);
+    assert.equal(g.players.filter((p) => p.stack > 0).length, 1);
+    assert.equal(g.players.reduce((a, p) => a + p.stack, 0), 500 * n);
+  }
+});
+
+// ------------------------------------------------------------- Teen Patti
+
+function checkTeenPatti(g) {
+  const onTable = g.players.reduce((a, p) => a + p.stack, 0) + g.chipsInPlay();
+  assert.equal(onTable, g.chipsIn - g.chipsOut, 'chips were lost or made up');
+  const h = g.hand;
+  if (!h) return;
+  const seats = [...h.seats.values()];
+  const cards = [...h.deck, ...seats.flatMap((s) => s.hole)].map((c) => c.id);
+  assert.equal(new Set(cards).size, cards.length, 'a card is in two places');
+  assert.equal(cards.length, 52, 'cards went missing');
+  if (g.phase === 'hand') {
+    assert.equal(h.parts.reduce((a, x) => a + x.amount, 0), h.pot, 'the pot parts must add up to the pot');
+    assert.ok(seats.filter((s) => !s.folded).length >= 2, 'a hand with one player left should be over');
+    const s = h.seats.get(h.toAct);
+    assert.ok(s && !s.folded && !s.allIn, 'the player to act must be able to act');
+    if (h.sideshow) assert.equal(h.toAct, h.sideshow.to);
+  } else if (h.results && !h.voided) {
+    const paid = h.results.pots.flatMap((p) => p.winners);
+    assert.equal(paid.reduce((a, w) => a + w.n, 0), h.results.pots.reduce((a, p) => a + p.amount, 0));
+    for (const w of paid) assert.ok(!h.seats.get(w.pid).folded || !g.has(w.pid), 'a packed player won chips');
+    // With one pot and no tie, the best hand still in won it.
+    if (h.results.showdown && h.results.pots.length === 1) {
+      const live = seats.filter((s) => !s.folded);
+      const top = Math.max(...live.map((s) => s.score));
+      const best = live.filter((s) => s.score === top);
+      if (best.length === 1) assert.deepEqual(paid.map((w) => w.pid), [best[0].pid]);
+    }
+  }
+  for (const viewer of [...g.players.map((p) => p.id), 'watcher']) {
+    const v = g.viewFor(viewer);
+    const json = JSON.stringify(v);
+    assert.ok(!/"id":\d/.test(json) && !json.includes('"code"') && !json.includes('"deck"'), 'internal card data must never reach clients');
+    for (const p of v.players) {
+      if (!p.cards?.some(Boolean)) continue;
+      const s = h.seats.get(p.id);
+      const ok = (p.id === viewer && (s.seen || g.phase !== 'hand')) || h.shown.has(p.id) || g.peeked(viewer, p.id);
+      assert.ok(ok, `hidden card leaked to ${viewer}`);
+      p.cards.forEach((c, i) => assert.deepEqual(c, { r: s.hole[i].r, s: s.hole[i].s }));
+    }
+    if (v.hand?.options) assert.equal(v.hand.toAct, viewer, 'options leaked to someone else');
+  }
+}
+
+function randomTeenMove(g, rng, nextId) {
+  const r = rng();
+  const someone = () => pick(g.players, rng).id;
+  if (r < 0.015 && g.players.length > 2) return g.removePlayer(someone());
+  if (r < 0.03 && g.players.length < 10) return g.addPlayer({ id: nextId(), name: 'New' });
+  if (r < 0.05) return g.sitOut(someone(), rng() < 0.5 ? 'self' : 'away');
+  if (r < 0.08) return g.sitIn(someone());
+  if (r < 0.1) return g.rebuy(someone());
+  if (r < 0.11) return g.show(someone());
+  if (r < 0.115) return g.raiseLevel();
+  if (r < 0.2) return g.see(someone());
+  if (g.phase === 'hand') {
+    const pid = g.hand.toAct;
+    if (rng() < 0.05) return g.act(someone(), pick(['bet', 'pack', 'reply'], rng)); // usually not their turn
+    if (rng() < 0.05) return g.autoPlay(pid);
+    if (g.hand.sideshow) return g.act(pid, rng() < 0.6 ? 'reply' : 'bet', rng() < 0.5);
+    return g.act(pid, pick(['bet', 'bet', 'bet', 'raise', 'pack', 'askShow', 'sideshow', 'bogus'], rng));
+  }
+  if (g.phase === 'waiting') for (const p of g.players) if (p.out) g.sitIn(p.id);
+  if (g.rules.mode === 'cash' && rng() < 0.5) for (const p of g.players) if (p.stack === 0) g.rebuy(p.id);
+  return g.nextHand();
+}
+
+test('random Teen Patti games keep every chip and card and leak nothing', () => {
+  for (let seed = 1; seed <= 150; seed++) {
+    const rng = seededRng(5000 + seed);
+    const n = 2 + (seed % 9);
+    const mode = seed % 3 === 0 ? 'tourney' : 'cash';
+    const g = new TeenPatti(players(n), { mode, stack: [200, 1000, 2000][seed % 3], boot: seed % 4, potLimit: [0, 50, 100, 200][seed % 4] }, { rng });
+    let ids = n;
+    const nextId = () => `p${ids++}`;
+    for (let step = 0; step < 900 && g.phase !== 'gameOver'; step++) {
+      try {
+        randomTeenMove(g, rng, nextId);
+      } catch (e) {
+        if (!(e instanceof GameError)) throw e;
+      }
+      checkTeenPatti(g);
+    }
+    if (g.phase !== 'gameOver') {
+      g.finishGame('host');
+      checkTeenPatti(g);
+    }
+    assert.equal(g.phase, 'gameOver');
+  }
+});
+
+test('Teen Patti computer players always make a legal move, and their games finish', () => {
+  for (let seed = 1; seed <= 24; seed++) {
+    const rng = seededRng(9000 + seed);
+    const n = 2 + (seed % 9);
+    const g = new TeenPatti(players(n), { mode: 'tourney', stack: 500, boot: 1, potLimit: seed % 2 ? 100 : 0 }, { rng });
+    for (let step = 0; g.phase !== 'gameOver'; step++) {
+      assert.ok(step < 40000, 'a bot game should end');
+      if (g.phase === 'hand') {
+        const pid = g.hand.toAct;
+        const before = g.hand.actions;
+        teenBotAct(g, pid, rng, { loose: rng() * 2 - 1, aggro: 0.7 + rng() * 0.7 });
+        assert.ok(g.phase !== 'hand' || g.hand.actions > before, 'the bot did nothing');
+      } else {
+        if (g.handNo % 15 === 0) g.raiseLevel();
+        g.nextHand();
+      }
+      if (step % 7 === 0) checkTeenPatti(g);
     }
     assert.equal(g.winners.length, 1);
     assert.equal(g.players.filter((p) => p.stack > 0).length, 1);

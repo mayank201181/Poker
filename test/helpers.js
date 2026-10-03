@@ -1,4 +1,5 @@
 import { Game } from '../server/game.js';
+import { TeenPatti } from '../server/teenpatti.js';
 import { makeDeck } from '../server/cards.js';
 import { seededRng } from '../server/util.js';
 
@@ -48,4 +49,33 @@ export const ev = (g, t) => g.events.filter((e) => e.t === t);
 // Chips are never created or lost.
 export function chipsOk(g) {
   return g.players.reduce((a, p) => a + p.stack, 0) + g.chipsInPlay() === g.chipsIn - g.chipsOut;
+}
+
+// The same for Teen Patti: three cards each, dealt one at a time starting
+// left of the button, no burn cards.
+export function rigTP({ stacks, button = 0, hole = [], rules = {}, emit } = {}) {
+  const ids = stacks.map((stack, i) => ({ id: `p${i}`, name: `P${i}`, stack }));
+  const pool = new Map(makeDeck().map((c) => [c.r + c.s, c]));
+  const take = (code) => {
+    const c = pool.get(code);
+    if (!c) throw new Error(`card ${code} is unknown or used twice`);
+    pool.delete(code);
+    return c;
+  };
+  const holes = stacks.map((_, i) => (hole[i] ? hole[i].map(take) : null));
+  const spare = () => {
+    const [code, c] = pool.entries().next().value;
+    pool.delete(code);
+    return c;
+  };
+  const order = stacks.map((_, k) => (button + 1 + k) % stacks.length).filter((i) => stacks[i] > 0);
+  const seq = [0, 1, 2].flatMap((r) => order.map((i) => holes[i]?.[r] ?? null));
+  const cards = seq.map((c) => c ?? spare());
+  const rigged = [...pool.values(), ...cards.reverse()];
+  return new TeenPatti(ids, { boot: 1, potLimit: 0, ...rules }, {
+    rng: seededRng(7),
+    emit,
+    button: `p${button}`,
+    deck: (no) => (no === 1 ? rigged : null),
+  });
 }

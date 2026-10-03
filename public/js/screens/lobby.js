@@ -23,6 +23,16 @@ const BLIND_CHOICES = [
   [5, '50/100', 100],
   [7, '100/200', 200],
 ];
+// Starting boots for Teen Patti: [index into the server's boot ladder, amount]
+const BOOT_CHOICES = [
+  [0, 5],
+  [1, 10],
+  [3, 20],
+  [5, 50],
+  [7, 100],
+];
+// The pot limit, in boots (0: none).
+const POT_LIMITS = [0, 50, 100, 200, 500];
 const STACK_CHOICES = [
   [500, '500'],
   [1000, '1,000'],
@@ -82,7 +92,9 @@ export function renderLobby(ctx) {
   const set = (patch) => ctx.send('settings', { settings: patch });
   const ro = !isHost;
   const bb = BLIND_CHOICES.find((b) => b[0] === s.blinds)?.[2] ?? 20;
+  const boot = BOOT_CHOICES.find((b) => b[0] === s.boot)?.[1] ?? 10;
   const tourney = s.mode === 'tourney';
+  const tp = s.game === 'teenpatti';
 
   return h(
     'main.screen.lobby',
@@ -120,6 +132,25 @@ export function renderLobby(ctx) {
         h('span', 'Game'),
         seg(
           [
+            ['holdem', "Texas Hold'em"],
+            ['teenpatti', 'Teen Patti'],
+          ],
+          s.game,
+          (x) => set({ game: x }),
+          ro,
+        ),
+        h(
+          'small.hint',
+          tp
+            ? 'Three cards each. Play blind or see your cards, chaal, show and sideshow.'
+            : 'Two cards each and five shared cards. No-limit betting.',
+        ),
+      ),
+      h(
+        'div.setting',
+        h('span', 'Format'),
+        seg(
+          [
             ['cash', 'Cash game'],
             ['tourney', 'Tournament'],
           ],
@@ -130,18 +161,34 @@ export function renderLobby(ctx) {
         h(
           'small.hint',
           tourney
-            ? 'No rebuys and the blinds go up. Last player with chips wins.'
-            : 'Run out of chips? Rebuy and keep playing. Fixed blinds; the host ends the game, and whoever is up the most wins.',
+            ? `No rebuys and the ${tp ? 'boot goes' : 'blinds go'} up. Last player with chips wins.`
+            : `Run out of chips? Rebuy and keep playing. Fixed ${tp ? 'boot' : 'blinds'}; the host ends the game, and whoever is up the most wins.`,
         ),
       ),
       h('div.setting', h('span', 'Starting chips'), seg(STACK_CHOICES, s.stack, (x) => set({ stack: x }), ro)),
-      h(
-        'div.setting',
-        h('span', 'Blinds (small/big)'),
-        seg(BLIND_CHOICES.map(([i, label]) => [i, label]), s.blinds, (x) => set({ blinds: x }), ro),
-        h('small.hint', `Everyone starts with ${fmt(s.stack)} chips, which is ${fmt(Math.floor(s.stack / bb))} big blinds.`),
-      ),
-      tourney && h('div.setting', h('span', 'Blinds go up every'), seg(BLINDS_UP_CHOICES, s.blindsUp, (x) => set({ blindsUp: x }), ro)),
+      tp
+        ? [
+            h(
+              'div.setting',
+              h('span', 'Boot'),
+              seg(BOOT_CHOICES.map(([i, n]) => [i, fmt(n)]), s.boot, (x) => set({ boot: x }), ro),
+              h('small.hint', `Everyone puts in the boot each hand. ${fmt(s.stack)} chips is ${fmt(Math.floor(s.stack / boot))} boots.`),
+            ),
+            h(
+              'div.setting',
+              h('span', 'Pot limit'),
+              seg(POT_LIMITS.map((x) => [x, x ? fmt(x * boot) : 'None']), s.potLimit, (x) => set({ potLimit: x }), ro),
+              h('small.hint', s.potLimit ? 'When the pot reaches this, everyone still in shows.' : 'No limit: a hand goes on until a show or everyone else packs.'),
+            ),
+          ]
+        : h(
+            'div.setting',
+            h('span', 'Blinds (small/big)'),
+            seg(BLIND_CHOICES.map(([i, label]) => [i, label]), s.blinds, (x) => set({ blinds: x }), ro),
+            h('small.hint', `Everyone starts with ${fmt(s.stack)} chips, which is ${fmt(Math.floor(s.stack / bb))} big blinds.`),
+          ),
+      tourney &&
+        h('div.setting', h('span', tp ? 'Boot goes up every' : 'Blinds go up every'), seg(BLINDS_UP_CHOICES, s.blindsUp, (x) => set({ blindsUp: x }), ro)),
       h('div.setting', h('span', 'Turn timer'), seg(TIMER_CHOICES, s.turnTimer, (x) => set({ turnTimer: x }), ro)),
     ),
     h(

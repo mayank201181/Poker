@@ -22,7 +22,7 @@ before(async () => {
       nextHand: 40,
       showdown: 60,
       waiting: 20,
-      minute: 150,
+      minute: 50,
     },
   });
   await new Promise((r) => srv.server.listen(0, r));
@@ -42,6 +42,7 @@ class Client {
     this.token = token;
     this.view = null;
     this.events = [];
+    this.peeks = new Set(); // Teen Patti: whose cards I saw in a sideshow this hand
     this.removed = null;
     this.connect();
   }
@@ -51,7 +52,11 @@ class Client {
     this.socket.on('state', (m) => {
       this.view = m.view;
       this.events.push(...m.events);
-      checkNoLeaks(m.view);
+      for (const e of m.events) {
+        if (e.t === 'hand') this.peeks.clear();
+        if (e.t === 'sideshow' && e.accepted && (e.pid === m.view.me || e.with === m.view.me)) this.peeks.add(e.pid === m.view.me ? e.with : e.pid);
+      }
+      checkNoLeaks(m.view, this.peeks);
     });
     this.socket.on('removed', (m) => (this.removed = m.why));
   }
@@ -86,14 +91,19 @@ class Client {
   }
 }
 
-// Other players' cards only show when they're turned up for everyone, and
-// betting options only go to the player whose turn it is.
-function checkNoLeaks(v) {
+// Other players' cards only show when they're turned up for everyone (or,
+// in Teen Patti, to a sideshow partner); blind Teen Patti players don't even
+// get their own; betting options only go to the player whose turn it is.
+function checkNoLeaks(v, peeks = new Set()) {
   const g = v.game;
   if (!g) return;
   for (const p of g.players) {
-    if (p.id === v.me || !p.cards) continue;
-    if (p.cards.some(Boolean)) assert.ok(p.shown, `${p.name}'s hidden cards leaked to ${v.me}`);
+    if (!p.cards?.some(Boolean)) continue;
+    if (p.id === v.me) {
+      if (g.kind === 'teenpatti' && g.phase === 'hand') assert.ok(p.seen, 'a blind player was sent their own cards');
+      continue;
+    }
+    assert.ok(p.shown || peeks.has(p.id), `${p.name}'s hidden cards leaked to ${v.me}`);
   }
   if (g.hand?.options) assert.equal(g.hand.toAct, v.me, 'betting options leaked');
   assert.ok(!JSON.stringify(v).includes('"deck"'), 'the deck must never reach a client');
@@ -104,6 +114,15 @@ function chooseMove(v) {
   const o = v.game?.hand?.options;
   if (!o || v.paused) return null;
   const r = Math.random();
+  if (v.game.kind === 'teenpatti') {
+    if (o.reply) return { type: 'reply', accept: r < 0.5 };
+    if (!o.seen && r < 0.3) return { type: 'see' };
+    if (o.canShow && r < 0.45) return { type: 'askShow' };
+    if (o.canSideshow && r < 0.55) return { type: 'sideshow' };
+    if (r < 0.62) return { type: 'pack' };
+    if (o.canRaise && r < 0.7) return { type: 'raise' };
+    return { type: 'bet' };
+  }
   if (r < 0.1 && !o.canCheck) return { type: 'fold' };
   if (r < 0.2 && o.canRaise) return { type: 'raise', to: o.minTo };
   return { type: o.canCheck ? 'check' : 'call' };
@@ -123,7 +142,7 @@ async function playUntil(clients, done, ms = 15000) {
       c.cmd(mv.type, mv).then((res) => {
         busy.delete(c);
         // Racing a state update is fine; anything else is a bug.
-        if (!res.ok) assert.match(res.error, /not your turn|no betting|nothing to call|can't check|paused/i);
+        if (!res.ok) assert.match(res.error, /not your turn|no betting|nothing to call|can't check|paused|no cards to see|aren't in this hand/i);
       });
     }
     await sleep(3);
@@ -185,7 +204,6 @@ test('a practice tournament against computer players runs to the end', async () 
   assert.ok(a.view.clock, 'tournaments show when the blinds go up');
   assert.equal((await a.cmd('addBot')).ok, false, 'no new players during a tournament');
   await playUntil([a], () => a.view.game?.phase === 'gameOver', 60000);
-  assert.ok(a.events.some((e) => e.t === 'level'), 'the blinds went up');
   assert.equal(a.view.game.winners.length, 1);
   const places = a.view.game.players.map((p) => p.place).sort();
   assert.deepEqual(places, [1, 2, 3, 4]);
@@ -193,6 +211,27 @@ test('a practice tournament against computer players runs to the end', async () 
   await a.until((v) => !v.game);
   assert.ok(code);
   a.close();
+});
+
+test('tournament blinds go up on the clock, and the clock stops while paused', async () => {
+  const a = new Client('Clock');
+  const b = new Client('Watcher');
+  const { code } = await a.create();
+  await b.join(code);
+  await a.until((v) => v.members.length === 2);
+  // No turn timer and nobody acts, so the hand waits while the blind clock runs (10 "minutes" of 50ms).
+  assert.ok((await a.cmd('settings', { settings: { mode: 'tourney', turnTimer: 0, blindsUp: 10 } })).ok);
+  assert.ok((await a.cmd('start')).ok);
+  await a.until((v) => v.game?.phase === 'hand' && v.clock);
+  await a.until((v) => v.game.level === 2, 3000);
+  assert.ok(a.events.some((e) => e.t === 'level' && e.sb === 15 && e.bb === 30));
+  assert.ok((await a.cmd('pause')).ok);
+  await sleep(800);
+  assert.equal(a.view.game.level, 2, 'no level passes while paused');
+  assert.ok((await a.cmd('resume')).ok);
+  await a.until((v) => v.game.level === 3, 3000);
+  a.close();
+  b.close();
 });
 
 test('dropping out: your turns are skipped, you sit out, and you are dealt back in on return', async () => {
@@ -294,6 +333,50 @@ test('people who arrive late watch, then sit down in a cash game or take over a 
   assert.equal(d.view.game.players.find((p) => p.id === seat).name, 'New-phone');
   assert.equal((await d.cmd('rebuy')).ok, false, 'you can only rebuy with no chips');
   for (const x of [a, d, late]) x.close();
+});
+
+test('Teen Patti: see, bet, show and sideshow between real players', async () => {
+  const a = new Client('Didi');
+  const b = new Client('Bhaiya');
+  const c = new Client('Chachu');
+  const { code } = await a.create();
+  await b.join(code);
+  await c.join(code);
+  await a.until((v) => v.members.length === 3);
+  assert.ok((await a.cmd('settings', { settings: { game: 'teenpatti', boot: 3, potLimit: 50, turnTimer: 0 } })).ok);
+  await c.until((v) => v.settings.game === 'teenpatti');
+  assert.ok((await a.cmd('start')).ok);
+  await b.until((v) => v.game?.kind === 'teenpatti' && v.game.phase === 'hand');
+  assert.equal(b.view.game.hand.boot, 20);
+  assert.equal(b.view.game.hand.limit, 1000);
+  assert.equal(b.view.game.hand.pot, 60);
+  const mine = b.view.game.players.find((p) => p.id === b.view.me);
+  assert.deepEqual(mine.cards, [null, null, null], 'blind: you have not seen your cards yet');
+  assert.ok((await b.cmd('see')).ok);
+  await b.until((v) => v.game.players.find((p) => p.id === v.me).cards[0]);
+  assert.ok(b.view.game.players.find((p) => p.id === b.view.me).best.name);
+  await c.until((v) => v.game.players.find((p) => p.id === b.view.me).seen, 2000);
+  assert.equal((await a.cmd('fold')).ok, false, "Hold'em moves don't work in Teen Patti");
+
+  await playUntil([a, b, c], () => (a.view.game?.handNo ?? 0) >= 6, 20000);
+  const g = a.view.game;
+  const chips = g.players.reduce((x, p) => x + p.stack, 0) + (g.phase === 'hand' ? g.hand.pot : 0);
+  assert.equal(chips, 3000, 'no chips appear or vanish');
+  assert.ok(a.events.some((e) => e.t === 'win'));
+  for (const x of [a, b, c]) x.close();
+});
+
+test('a Teen Patti practice tournament against computer players runs to the end', async () => {
+  const a = new Client('Solo');
+  await a.create();
+  for (let i = 0; i < 4; i++) assert.ok((await a.cmd('addBot')).ok);
+  assert.ok((await a.cmd('settings', { settings: { game: 'teenpatti', mode: 'tourney', stack: 500 } })).ok);
+  assert.ok((await a.cmd('start')).ok);
+  await a.until((v) => v.game?.phase === 'hand');
+  await playUntil([a], () => a.view.game?.phase === 'gameOver', 60000);
+  assert.equal(a.view.game.winners.length, 1);
+  assert.deepEqual(a.view.game.players.map((p) => p.place).sort(), [1, 2, 3, 4, 5]);
+  a.close();
 });
 
 test('junk input is rejected without taking the server down', async () => {

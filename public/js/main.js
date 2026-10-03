@@ -9,6 +9,7 @@ import { snapshot, fly, flyChips, keyed, pulse } from './anim.js';
 import { renderHome } from './screens/home.js';
 import { renderLobby } from './screens/lobby.js';
 import { renderTable } from './screens/table.js';
+import { renderTeenPatti } from './screens/teenpatti.js';
 import { renderSheet, gameOverSheet, claimSheet } from './screens/sheets.js';
 
 const store = {
@@ -159,7 +160,7 @@ function syncUi(v, prevGame) {
 function runPreAction(v) {
   const h = v.game?.hand;
   const o = h?.options;
-  if (!S.pre || !o || v.paused) return;
+  if (!S.pre || !o || v.paused || v.game.kind !== 'holdem') return;
   const { kind } = S.pre;
   S.pre = null;
   if (o.canCheck) send('check');
@@ -211,6 +212,7 @@ const ctx = {
     S.ui.raise = null;
     S.pre = null;
     render();
+    if (type === 'reply') return send(type, { accept: to === true });
     return send(type, to === undefined ? {} : { to });
   },
   togglePre(kind) {
@@ -292,7 +294,8 @@ function patch(root, next) {
 
 function render() {
   const v = S.view;
-  patch(document.getElementById('app'), !v ? renderHome(ctx) : !v.game ? renderLobby(ctx) : renderTable(ctx));
+  const table = v?.game?.kind === 'teenpatti' ? renderTeenPatti : renderTable;
+  patch(document.getElementById('app'), !v ? renderHome(ctx) : !v.game ? renderLobby(ctx) : table(ctx));
   renderSheets();
   document.getElementById('conn').hidden = S.connected || !v;
   document.body.classList.toggle('in-game', Boolean(v?.game));
@@ -353,10 +356,32 @@ function react(events, v) {
         chips += 1;
         break;
       case 'act':
-        if (ev.a === 'fold') sfx.fold();
+        if (ev.a === 'fold' || ev.a === 'pack') sfx.fold();
         else if (ev.a === 'check') sfx.check();
-        else chips += ev.a === 'call' ? 2 : 3;
+        else chips += ev.a === 'call' || ev.a === 'blind' ? 2 : 3;
         if (ev.allIn) allIn.push(ev.pid);
+        if (ev.a === 'show') banner('SHOW!', ev.pid === me ? 'You asked for a show' : `${name(ev.pid)} asked for a show`);
+        if (ev.a === 'sideshow') {
+          sfx.ping();
+          if (ev.to === me) {
+            haptic([60, 40, 60]);
+            toast(`${name(ev.pid)} asks you for a sideshow`, 'warn');
+          }
+        }
+        break;
+      case 'boot':
+        chips += 3;
+        break;
+      case 'see':
+        if (ev.pid === me) sfx.flip();
+        break;
+      case 'sideshow':
+        sfx.flip();
+        if (ev.pid === me || ev.with === me || ev.accepted) toast(describe(ev, v), ev.loser === me ? 'warn' : 'info');
+        break;
+      case 'limit':
+        sfx.allin();
+        banner('POT LIMIT', 'Everyone still in shows their cards');
         break;
       case 'street':
         sfx.flip();
@@ -371,7 +396,9 @@ function react(events, v) {
           haptic([80, 50, 80]);
         } else chips += 4;
         const m = v.members.find((x) => x.id === ev.pid);
-        if (m?.bot && ev.hand && QUIPS[m.name] && ev.n >= 10 * (v.game?.hand?.blinds[1] ?? 0)) toast(`🤖 ${m.name}: “${QUIPS[m.name]}”`);
+        // A famous line when a computer player wins a big pot at a showdown.
+        const big = v.game?.hand?.blinds?.[1] ?? v.game?.hand?.boot ?? 0;
+        if (m?.bot && ev.hand && QUIPS[m.name] && ev.n >= 10 * big) toast(`🤖 ${m.name}: “${QUIPS[m.name]}”`);
         break;
       }
       case 'bust':
@@ -444,8 +471,9 @@ function animate(events, before, v) {
       case 'deal': {
         const seats = (g?.players ?? []).filter((p) => p.inHand);
         const from = after.get('deck');
+        const each = ev.cards ?? 2;
         seats.forEach((p, i) => {
-          for (let k = 0; k < 2; k++) {
+          for (let k = 0; k < each; k++) {
             const key = `hole:${p.id}:${k}`;
             const target = keyed(key);
             fly({ from, to: after.get(key), card: backEl({ size: 'sm' }), delay: delay + (k * seats.length + i) * 70, duration: 380, hide: target });
@@ -456,10 +484,19 @@ function animate(events, before, v) {
       }
       case 'blind':
       case 'act':
-        if (ev.t === 'blind' || ev.a === 'call' || ev.a === 'bet' || ev.a === 'raise') {
-          flyChips({ from: before.get(`seat:${ev.pid}`) ?? after.get(`seat:${ev.pid}`), to: after.get(`bet:${ev.pid}`), n: ev.allIn ? 4 : 2, delay });
+        if (ev.t === 'blind' || ['call', 'bet', 'raise', 'blind', 'chaal', 'show', 'sideshow'].includes(ev.a)) {
+          // Hold'em bets wait in front of the player; Teen Patti bets go straight into the pot.
+          const to = after.get(`bet:${ev.pid}`) ?? after.get('pot');
+          flyChips({ from: before.get(`seat:${ev.pid}`) ?? after.get(`seat:${ev.pid}`), to, n: ev.allIn ? 4 : 2, delay });
           delay += 60;
         }
+        break;
+      case 'boot':
+        for (const p of g?.players ?? []) if (p.inHand) flyChips({ from: after.get(`seat:${p.id}`), to: after.get('pot'), n: 1, delay });
+        delay += 120;
+        break;
+      case 'see':
+        if (ev.pid === v.me) for (let k = 0; k < 3; k++) pulse(keyed(`hole:${ev.pid}:${k}`), 'flip');
         break;
       case 'street': {
         // Bets are swept into the pot, then the new cards are dealt.

@@ -22,7 +22,7 @@ function sheet(ctx, title, body, { closable = true, id = '' } = {}) {
 
 export function renderSheet(ctx, name, data) {
   switch (name) {
-    case 'rules': return rulesSheet(ctx);
+    case 'rules': return rulesSheet(ctx, data);
     case 'standings': return standingsSheet(ctx);
     case 'log': return logSheet(ctx);
     case 'menu': return menuSheet(ctx);
@@ -47,17 +47,90 @@ const RANKINGS = [
   ['High Card', 'AC QD 9S 6H 3C', 'None of the above: highest card plays'],
 ];
 
-function rankings() {
+const TP_RANKINGS = [
+  ['Trail', 'AS AH AD', 'Three of a kind. A-A-A is the best hand of all'],
+  ['Pure Sequence', 'QH KH AH', 'Three in a row, all the same suit'],
+  ['Sequence', '4C 5D 6S', 'Three in a row'],
+  ['Color', '2S 8S JS', 'Three of the same suit'],
+  ['Pair', 'KD KC 7H', 'Two cards of the same rank'],
+  ['High Card', 'AC 9D 4H', 'None of the above: highest card plays'],
+];
+
+function rankings(list) {
   return h(
     'ol.rankings',
-    RANKINGS.map(([name, cards, what]) =>
+    list.map(([name, cards, what]) =>
       h('li', h('div.rk-cards', parse(cards).map((c) => cardEl(c, { size: 'sm' }))), h('div.rk-txt', h('b', name), h('small', what))),
     ),
   );
 }
 
-function rulesSheet(ctx) {
-  return sheet(ctx, 'How to play', [
+function rulesSheet(ctx, data) {
+  const v = ctx.view;
+  const game = data?.game ?? v?.game?.kind ?? v?.settings?.game ?? 'holdem';
+  return sheet(
+    ctx,
+    'How to play',
+    [
+      seg(
+        [
+          ['holdem', "Texas Hold'em"],
+          ['teenpatti', 'Teen Patti'],
+        ],
+        game,
+        (x) => ctx.openSheet('rules', { game: x }),
+      ),
+      game === 'teenpatti' ? teenPattiRules() : holdemRules(),
+    ],
+    { id: 'rules' },
+  );
+}
+
+function teenPattiRules() {
+  return [
+    h('p.lead', 'Teen Patti (3 Patti): everyone gets three cards. Win the pot with the best hand at a show, or by betting until everyone else packs.'),
+    h('h3', 'A hand, step by step'),
+    h(
+      'ol.rules',
+      h('li', h('b', 'Boot. '), 'Everyone puts the boot into the pot and gets three cards face down.'),
+      h('li', h('b', 'Blind or seen. '), 'Play blind, without looking, or tap your cards to see them. Once you have seen them you are a seen player and every bet costs twice as much. Everyone can see who is blind.'),
+      h('li', h('b', 'Betting. '), 'Starting left of the dealer, each player in turn bets or packs. The stake starts at the boot.'),
+    ),
+    h(
+      'ul.rules',
+      h('li', h('b', 'Blind: '), 'a blind player bets the stake.'),
+      h('li', h('b', 'Chaal: '), 'a seen player bets twice the stake.'),
+      h('li', h('b', '2x: '), 'bet double, and the stake doubles for everyone after you.'),
+      h('li', h('b', 'Pack: '), 'give up the hand and what you have put in.'),
+    ),
+    h('h3', 'Show and sideshow'),
+    h(
+      'ul.rules',
+      h('li', h('b', 'Show: '), 'when only two players are left, either can ask for a show by paying one bet. Both hands are turned up and the better one takes the pot. On an exact tie, whoever asked for the show loses.'),
+      h('li', h('b', 'Sideshow: '), 'a seen player can pay a chaal and ask the seen player just before them to compare cards in private. The lower hand packs; on a tie, the one who asked packs. The other player can say no.'),
+    ),
+    h('h3', 'Hands, best to worst'),
+    rankings(TP_RANKINGS),
+    h('p.muted', 'Runs: A-K-Q is the highest, then A-2-3, then K-Q-J and down to 4-3-2. In Teen Patti a sequence beats a color. All four suits are equal.'),
+    h('h3', 'Pot limit and all in'),
+    h(
+      'ul.rules',
+      h('li', 'If the host set a pot limit, everyone still in shows when the pot reaches it.'),
+      h('li', 'Short of chips? Bet what you have and you are all in. You can win the pot as it stood then; bets after that go into a side pot for the others.'),
+    ),
+    h('h3', 'Good to know'),
+    h(
+      'ul.rules',
+      h('li', 'Chips only. No real money is involved.'),
+      h('li', 'You can look at your cards any time, even when it is not your turn.'),
+      h('li', 'Out of time? You pack (or say no to a sideshow). Miss two turns in a row and you sit out until you tap I’m back.'),
+      h('li', "Cash games and tournaments work as in Hold'em; in a tournament the boot goes up every few minutes."),
+    ),
+  ];
+}
+
+function holdemRules() {
+  return [
     h('p.lead', "Texas Hold'em: make the best five-card hand from your 2 cards and the 5 cards everyone shares in the middle. Win chips by having the best hand, or by betting so that everyone else folds."),
     h('h3', 'A hand, step by step'),
     h(
@@ -81,7 +154,7 @@ function rulesSheet(ctx) {
     ),
     h('p.muted', 'Waiting for others? Tick Check / Fold and it happens as soon as it is your turn.'),
     h('h3', 'Hands, best to worst'),
-    rankings(),
+    rankings(RANKINGS),
     h('p.muted', 'Under your cards you always see the best hand you have right now.'),
     h('h3', 'All in and side pots'),
     h('p', 'If someone is all in with fewer chips, they can only win as much from each player as they put in themselves. The extra bets go into a side pot that only the others can win.'),
@@ -99,7 +172,7 @@ function rulesSheet(ctx) {
       h('li', 'After a hand, anyone who played it can tap Show my cards.'),
       h('li', `Suits: ${SUIT.S} ${SUIT_HINDI.S}, ${SUIT.H} ${SUIT_HINDI.H}, ${SUIT.C} ${SUIT_HINDI.C}, ${SUIT.D} ${SUIT_HINDI.D}. All four suits are equal.`),
     ),
-  ]);
+  ];
 }
 
 // -------------------------------------------------------------- standings
@@ -199,7 +272,7 @@ function menuSheet(ctx) {
         h('h3', 'Host controls'),
         h('div.setting', h('span', 'Turn timer'), seg(TIMER_CHOICES, v.settings.turnTimer, (x) => ctx.send('settings', { settings: { turnTimer: x } }))),
         g.rules.mode === 'tourney' &&
-          h('div.setting', h('span', 'Blinds go up every'), seg(BLINDS_UP_CHOICES, v.settings.blindsUp, (x) => ctx.send('settings', { settings: { blindsUp: x } }))),
+          h('div.setting', h('span', g.kind === 'teenpatti' ? 'Boot goes up every' : 'Blinds go up every'), seg(BLINDS_UP_CHOICES, v.settings.blindsUp, (x) => ctx.send('settings', { settings: { blindsUp: x } }))),
         h(
           'div.row.wrap',
           v.paused

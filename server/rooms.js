@@ -1,9 +1,11 @@
-// Rooms: who is at the table, the host's controls, turn timers, dealing the
-// next hand, blind levels, bots, and sending each connected device its own
-// view of the game.
+// Rooms: who is at the table, which game (Texas Hold'em or Teen Patti), the
+// host's controls, turn timers, dealing the next hand, blind and boot levels,
+// bots, and sending each connected device its own view of the game.
 
-import { Game, GameError, DEFAULT_RULES, BLINDS } from './game.js';
+import { Game, GameError, DEFAULT_RULES } from './game.js';
+import { TeenPatti, TP_RULES } from './teenpatti.js';
 import { botAct } from './bot.js';
+import { teenBotAct } from './teenbot.js';
 import { cleanName, makeRoomCode, newId, cryptoRandom } from './util.js';
 
 export const MAX_SEATS = 10;
@@ -17,13 +19,22 @@ const BOT_NAMES = ['Gabbar', 'Mogambo', 'Shakaal', 'Teja', 'Gogo', 'Kancha', 'Sa
 
 // Starting blinds the host can pick (indexes into BLINDS): 5/10, 10/20, 25/50, 50/100, 100/200.
 export const BLIND_CHOICES = [0, 1, 3, 5, 7];
-export const DEFAULT_SETTINGS = Object.freeze({ ...DEFAULT_RULES, turnTimer: 45, blindsUp: 15 });
+// Starting boots (indexes into BOOTS): 5, 10, 20, 50, 100.
+export const BOOT_CHOICES = [0, 1, 3, 5, 7];
+export const DEFAULT_SETTINGS = Object.freeze({ game: 'holdem', ...DEFAULT_RULES, ...TP_RULES, turnTimer: 45, blindsUp: 15 });
 const CHOICES = {
+  game: ['holdem', 'teenpatti'],
   mode: ['cash', 'tourney'],
   stack: [500, 1000, 2000, 5000, 10000],
   blinds: BLIND_CHOICES,
+  boot: BOOT_CHOICES,
+  potLimit: [0, 50, 100, 200, 500],
   turnTimer: [0, 20, 30, 45, 60, 90],
   blindsUp: [10, 15, 20, 30],
+};
+const GAMES = {
+  holdem: { Engine: Game, rules: DEFAULT_RULES, bot: botAct },
+  teenpatti: { Engine: TeenPatti, rules: TP_RULES, bot: teenBotAct },
 };
 
 const DEFAULT_TIMING = {
@@ -302,14 +313,23 @@ export class Room {
     need(g.has(m.id), "You're watching this game");
     const id = m.id;
     switch (cmd.type) {
+      // Hold'em: fold, check, call, raise (to). Teen Patti: pack, bet, raise (2x), askShow, sideshow, reply.
       case 'fold':
       case 'check':
       case 'call':
       case 'raise':
+      case 'pack':
+      case 'bet':
+      case 'askShow':
+      case 'sideshow':
+      case 'reply':
         need(!this.paused, 'The game is paused');
-        g.act(id, cmd.type, cmd.to);
+        g.act(id, cmd.type, cmd.type === 'reply' ? cmd.accept === true : cmd.to);
         m.timeouts = 0;
         return;
+      case 'see':
+        need(g.kind === 'teenpatti', 'Unknown action');
+        return g.see(id);
       case 'show':
         return g.show(id);
       case 'sitOut':
@@ -330,7 +350,7 @@ export class Room {
     if (CHOICES.turnTimer.includes(s.turnTimer)) next.turnTimer = s.turnTimer;
     if (CHOICES.blindsUp.includes(s.blindsUp)) next.blindsUp = s.blindsUp;
     if (!this.game) {
-      for (const k of ['mode', 'stack', 'blinds']) if (CHOICES[k].includes(s[k])) next[k] = s[k];
+      for (const k of ['game', 'mode', 'stack', 'blinds', 'boot', 'potLimit']) if (CHOICES[k].includes(s[k])) next[k] = s[k];
     }
     this.settings = next;
   }
@@ -340,11 +360,12 @@ export class Room {
     const seats = this.seated().filter((m) => m.bot || m.connected);
     need(seats.length >= 2, 'You need at least 2 players (add a computer player to practise)');
     need(seats.length <= MAX_SEATS, `At most ${MAX_SEATS} players`);
-    const rules = Object.fromEntries(Object.keys(DEFAULT_RULES).map((k) => [k, this.settings[k]]));
+    const { Engine, rules: defaults } = GAMES[this.settings.game];
+    const rules = Object.fromEntries(Object.keys(defaults).map((k) => [k, this.settings[k]]));
     this.paused = null;
     this.levelAt = Date.now();
-    this.push({ t: 'start' });
-    this.game = new Game(seats.map((m) => ({ id: m.id, name: m.name })), rules, {
+    this.push({ t: 'start', game: this.settings.game });
+    this.game = new Engine(seats.map((m) => ({ id: m.id, name: m.name })), rules, {
       rng: this.rng,
       emit: (ev) => this.push(ev),
     });
@@ -497,7 +518,7 @@ export class Room {
       this.timers.bot = null;
       if (this.game !== g || this.paused || this.stage.key !== key) return;
       try {
-        botAct(g, pid, this.rng, m.style);
+        GAMES[g.kind].bot(g, pid, this.rng, m.style);
       } catch (e) {
         console.error('bot move failed', e);
         try {
@@ -553,12 +574,12 @@ export class Room {
     this.timers.level = null;
     const g = this.game;
     if (!g || g.rules.mode !== 'tourney' || g.phase === 'gameOver' || this.paused || !this.someoneHere()) return;
-    if (g.level >= BLINDS.length - 1) return;
+    if (g.level >= g.levels.length - 1) return;
     const at = this.levelAt + this.settings.blindsUp * this.timing.minute;
     this.timers.level = setTimeout(() => {
       this.timers.level = null;
       if (this.game !== g || this.paused || g.phase === 'gameOver') return;
-      g.raiseBlinds();
+      g.raiseLevel();
       this.levelAt = Date.now();
       this.afterChange();
     }, Math.max(0, at - Date.now()));
@@ -633,7 +654,7 @@ export class Room {
       timer: d ? { pid: d.pid, left: Math.max(0, d.at - now), total: d.total, reason: d.reason } : null,
       next: st ? { left: Math.max(0, st.at - now), total: st.total, kind: st.kind } : null,
       clock:
-        tourney && g.level < BLINDS.length - 1
+        tourney && g.level < g.levels.length - 1
           ? { left: Math.max(0, (this.paused ? levelEnd + now - this.paused.at : levelEnd) - now), total: this.settings.blindsUp * this.timing.minute, paused: Boolean(this.paused) }
           : null,
       claims: this.claims.filter((c) => isHost || c.from === mid).map((c) => ({ ...c })),

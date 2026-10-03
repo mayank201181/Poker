@@ -363,11 +363,11 @@ test('views: your own cards only, options only on your turn, nothing internal', 
 test('the blind level goes up from the next hand', () => {
   const g = new Game(players(3), { mode: 'tourney', blinds: 1 }, { rng: seededRng(5) });
   assert.deepEqual(g.hand.blinds ?? [g.hand.sb, g.hand.bb], [10, 20]);
-  g.raiseBlinds();
+  g.raiseLevel();
   assert.deepEqual([g.hand.sb, g.hand.bb], [10, 20]);
   g.finishGame('host');
   const h = new Game(players(3), { mode: 'cash', blinds: 1 }, { rng: seededRng(5) });
-  h.raiseBlinds();
+  h.raiseLevel();
   while (h.phase === 'hand') h.autoPlay(h.hand.toAct);
   h.nextHand();
   assert.deepEqual([h.hand.sb, h.hand.bb], [15, 30]);

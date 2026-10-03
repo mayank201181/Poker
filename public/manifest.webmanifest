@@ -1,7 +1,7 @@
 {
   "name": "Poker",
   "short_name": "Poker",
-  "description": "Texas Hold'em, online with family and friends.",
+  "description": "Texas Hold'em and Teen Patti, online with family and friends.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b3d26",

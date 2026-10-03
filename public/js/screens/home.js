@@ -38,7 +38,7 @@ export function renderHome(ctx) {
 
   return h(
     'main.screen.home',
-    h('div.brand', fan, h('h1', 'Poker'), h('p.tagline', "Texas Hold'em with family and friends. Chips only, no money.")),
+    h('div.brand', fan, h('h1', 'Poker'), h('p.tagline', "Texas Hold'em and Teen Patti with family and friends. Chips only, no money.")),
     h(
       'form.panel',
       {
