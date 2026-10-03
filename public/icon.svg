@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0d4a2e"/>
+  <g transform="rotate(-13 230 300)">
+    <rect x="96" y="112" width="190" height="266" rx="22" fill="#fffdf6" stroke="#d8d2c0" stroke-width="6"/>
+    <text x="191" y="282" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="150" fill="#1d1d1f">A</text>
+    <text x="128" y="172" text-anchor="middle" font-family="Georgia, serif" font-size="46" fill="#1d1d1f">♠</text>
+  </g>
+  <g transform="rotate(11 300 300)">
+    <rect x="214" y="104" width="190" height="266" rx="22" fill="#fffdf6" stroke="#d8d2c0" stroke-width="6"/>
+    <text x="309" y="274" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="150" fill="#d0312d">K</text>
+    <text x="246" y="164" text-anchor="middle" font-family="Georgia, serif" font-size="46" fill="#d0312d">♥</text>
+  </g>
+  <g transform="translate(372 392)">
+    <circle r="78" fill="#c8302a" stroke="#f6ead0" stroke-width="10"/>
+    <circle r="78" fill="none" stroke="#fff" stroke-width="16" stroke-dasharray="30 31.3" opacity=".9"/>
+    <circle r="50" fill="#e04238" stroke="#f6ead0" stroke-width="4"/>
+  </g>
+</svg>

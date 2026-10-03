@@ -1,0 +1,12 @@
+# Render Blueprint: one web service in Singapore (the closest Render region to India).
+# In Render: New → Blueprint → pick this repo → Apply.
+services:
+  - type: web
+    name: poker
+    runtime: node
+    region: singapore
+    plan: free # switch to the $7/month instance in Render's settings for an always-on server
+    branch: main
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
