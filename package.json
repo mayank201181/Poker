@@ -1,0 +1,23 @@
+{
+  "name": "poker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Poker — online multiplayer Texas Hold'em and Teen Patti for family and friends (2–10 players, play chips only).",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}
